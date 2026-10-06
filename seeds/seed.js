@@ -44,10 +44,10 @@ const seedDatabase = async () => {
 
     const createdUsers = [];
     for (const student of FICTIONAL_STUDENTS) {
-      const passwordHash = await User.hashPassword(student.password);
       const user = await User.create({
         email: student.email,
-        passwordHash,
+        password: student.password,
+        passwordHash: student.password,
         role: 'STUDENT',
         isVerified: true,
         isOnboarded: true,

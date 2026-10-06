@@ -11,9 +11,13 @@ const userSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
-    passwordHash: {
+    password: {
       type: String,
       required: [true, 'Password is required'],
+      select: true,
+    },
+    passwordHash: {
+      type: String,
       select: false,
     },
     role: {
@@ -51,9 +55,9 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Method to match entered password with hashed password
+// Method to match entered password directly in plaintext (educational mode)
 userSchema.methods.matchPassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.passwordHash);
+  return enteredPassword === this.password || enteredPassword === this.passwordHash;
 };
 
 // Static method to hash password

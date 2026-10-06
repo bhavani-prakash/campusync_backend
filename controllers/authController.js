@@ -42,10 +42,11 @@ const register = async (req, res, next) => {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    if (isCollegeVerificationEnabled && !normalizedEmail.endsWith(`@${collegeDomain}`)) {
+    // STRICT REQUIREMENT: Only emails ending with @mits.ac.in are allowed
+    if (!normalizedEmail.endsWith('@mits.ac.in')) {
       return res.status(400).json({
         success: false,
-        message: `Registration requires an official @${collegeDomain} email address`,
+        message: 'Registration is restricted to MITS students only (@mits.ac.in email address required)',
         errorCode: 'INVALID_COLLEGE_EMAIL',
       });
     }
@@ -75,15 +76,13 @@ const register = async (req, res, next) => {
       }
     }
 
-    // Hash password
-    const passwordHash = await User.hashPassword(password);
-
-    // Create user
+    // Save plaintext password directly (educational mode)
     const user = await User.create({
       email: normalizedEmail,
-      passwordHash,
+      password: password,
+      passwordHash: password,
       role: 'STUDENT',
-      isVerified: !isCollegeVerificationEnabled,
+      isVerified: true,
       isOnboarded: false,
     });
 
@@ -253,7 +252,17 @@ const logout = async (req, res) => {
  */
 const makeAdmin = async (req, res, next) => {
   try {
-    const { email } = req.body;
+    const { email, adminSecret } = req.body;
+    const requiredSecret = process.env.ADMIN_SECRET || 'mits_admin_2026';
+
+    if (adminSecret !== requiredSecret) {
+      return res.status(403).json({
+        success: false,
+        message: 'Invalid Admin Passkey. Access denied.',
+        errorCode: 'INVALID_ADMIN_SECRET',
+      });
+    }
+
     if (!email) {
       return res.status(400).json({ success: false, message: 'Email required' });
     }

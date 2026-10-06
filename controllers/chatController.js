@@ -99,6 +99,10 @@ const getMessages = async (req, res, next) => {
       });
     }
 
+    // Automatically purge any messages older than 24 hours
+    const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await Message.deleteMany({ conversationId, createdAt: { $lt: cutoffTime } });
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;

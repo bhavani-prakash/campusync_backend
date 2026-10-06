@@ -21,15 +21,14 @@ const getDiscoveryFeed = async (req, res, next) => {
     const { getBlockedUserIds } = require('../utils/blockHelper');
     const blockedUserIds = await getBlockedUserIds(currentUserId);
 
-    // Find all users current user has already liked or passed
+    // Find all users current user has already liked
     const existingLikes = await Like.find({ fromUserId: currentUserId }).select('toUserId');
-    const existingPasses = await Pass.find({ fromUserId: currentUserId }).select('toUserId');
 
+    // Passed users are kept in discovery feed so users can review them anytime
     const excludedUserIds = [
       currentUserId,
       ...blockedUserIds,
       ...existingLikes.map((l) => l.toUserId),
-      ...existingPasses.map((p) => p.toUserId),
     ];
 
     // Build filter criteria

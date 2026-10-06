@@ -105,10 +105,15 @@ const updateMyProfile = async (req, res, next) => {
       await User.findByIdAndUpdate(req.user._id, { isOnboarded: true });
     }
 
+    const updatedUser = await User.findById(req.user._id).select('-password -passwordHash');
+
     res.status(200).json({
       success: true,
       message: 'Profile updated successfully',
-      data: profile,
+      data: {
+        ...profile.toObject(),
+        user: updatedUser,
+      },
     });
   } catch (error) {
     next(error);

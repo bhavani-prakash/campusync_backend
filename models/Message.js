@@ -43,5 +43,8 @@ const messageSchema = new mongoose.Schema(
 // Compound index for fast paginated chat query sorting
 messageSchema.index({ conversationId: 1, createdAt: 1 });
 
+// Automatic 24-hour TTL deletion index (messages expire after 86400 seconds)
+messageSchema.index({ createdAt: 1 }, { expireAfterSeconds: 86400 });
+
 const Message = mongoose.model('Message', messageSchema);
 module.exports = Message;
