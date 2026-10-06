@@ -5,24 +5,33 @@ const rateLimit = require('express-rate-limit');
 
 const app = express();
 
-// Security Middleware
-app.use(helmet());
+// Security Middleware - allow cross-origin resource access
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
 
-// CORS configuration
-const allowedOrigins = [
-  process.env.CLIENT_URL || 'http://localhost:5173',
-  'http://localhost:5173',
-  'http://127.0.0.1:5173'
-];
-
+// Robust CORS configuration supporting Vercel, Netlify, Render & Localhost
 app.use(cors({
   origin: function (origin, callback) {
-    // allow requests with no origin (like mobile apps or curl requests)
+    // Allow non-browser requests (Postman, curl, server-to-server)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+
+    const clientEnv = process.env.CLIENT_URL || '';
+    const configuredOrigins = clientEnv.split(',').map(url => url.trim().replace(/\/$/, ''));
+    const cleanOrigin = origin.replace(/\/$/, '');
+
+    const isLocalhost = cleanOrigin.includes('localhost') || cleanOrigin.includes('127.0.0.1');
+    const isAllowedDomain = cleanOrigin.endsWith('.vercel.app') || 
+                            cleanOrigin.endsWith('.netlify.app') || 
+                            cleanOrigin.endsWith('.onrender.com');
+    const isConfigured = configuredOrigins.some(allowed => allowed === cleanOrigin);
+
+    if (isConfigured || isAllowedDomain || isLocalhost || process.env.NODE_ENV !== 'production') {
       return callback(null, true);
     }
-    return callback(new Error('CORS Policy violation'), false);
+
+    console.warn(`[CORS Blocked] Origin not allowed: ${origin}`);
+    return callback(new Error(`CORS Policy violation: ${origin} not allowed`), false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

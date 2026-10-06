@@ -9,10 +9,10 @@ connectDB();
 
 const server = http.createServer(app);
 
-// Initialize Socket.IO
+// Initialize Socket.IO with flexible CORS configuration
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: (origin, callback) => callback(null, true),
     methods: ['GET', 'POST'],
     credentials: true
   }
