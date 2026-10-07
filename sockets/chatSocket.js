@@ -178,7 +178,7 @@ const initChatSockets = (io) => {
       try {
         await Message.updateMany(
           { conversationId, receiverId: userId, isRead: false },
-          { isRead: true }
+          { isRead: true, readAt: new Date() }
         );
 
         socket.to(conversationId).emit('messages_read', {

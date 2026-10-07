@@ -99,9 +99,13 @@ const getMessages = async (req, res, next) => {
       });
     }
 
-    // Automatically purge any messages older than 24 hours
+    // Automatically purge any READ messages where 24 hours have passed since they were SEEN (readAt < 24h ago)
     const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    await Message.deleteMany({ conversationId, createdAt: { $lt: cutoffTime } });
+    await Message.deleteMany({
+      conversationId,
+      isRead: true,
+      readAt: { $lt: cutoffTime, $ne: null },
+    });
 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
@@ -124,10 +128,10 @@ const getMessages = async (req, res, next) => {
       return msgObj;
     });
 
-    // Automatically mark unread messages as read for receiver
+    // Automatically mark unread messages as read for receiver and set readAt timestamp
     await Message.updateMany(
       { conversationId, receiverId: currentUserId, isRead: false },
-      { isRead: true }
+      { isRead: true, readAt: new Date() }
     );
 
     res.status(200).json({
