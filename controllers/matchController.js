@@ -185,58 +185,207 @@ const sendSecretCrush = async (req, res, next) => {
 };
 
 /**
- * @desc    Get Daily Mystery Match
- * @route   GET /api/matches/mystery
+ * @desc    Get likes sent by authenticated user (Outbound Requests)
+ * @route   GET /api/matches/sent-likes
  * @access  Private
  */
-const getMysteryMatch = async (req, res, next) => {
+const getSentLikes = async (req, res, next) => {
   try {
     const currentUserId = req.user._id;
 
-    const currentProfile = await Profile.findOne({ userId: currentUserId });
+    const likesSent = await Like.find({ fromUserId: currentUserId }).sort({ createdAt: -1 });
 
-    // Exclude users already liked, passed, or matched
-    const existingLikes = await Like.find({ fromUserId: currentUserId }).select('toUserId');
-    const existingPasses = await Pass.find({ fromUserId: currentUserId }).select('toUserId');
+    const populatedLikes = await Promise.all(
+      likesSent.map(async (like) => {
+        const targetProfile = await Profile.findOne({ userId: like.toUserId }).select('-__v');
+        if (!targetProfile) return null;
 
-    const excludedIds = [
-      currentUserId,
-      ...existingLikes.map((l) => l.toUserId),
-      ...existingPasses.map((p) => p.toUserId),
-    ];
+        // Check if mutual match exists
+        const isMatched = await Match.findExistingMatch(currentUserId, like.toUserId);
 
-    const candidateProfiles = await Profile.find({
-      userId: { $nin: excludedIds },
-      allowDiscovery: true,
-      profileVisibility: true,
-    }).select('-__v');
+        return {
+          likeId: like._id,
+          likedAt: like.createdAt,
+          isSecretCrush: like.isSecretCrush,
+          isMatched: Boolean(isMatched),
+          targetProfile,
+        };
+      })
+    );
 
-    if (candidateProfiles.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'No mystery match available today',
-        data: null,
-      });
-    }
-
-    // Calculate compatibility score for candidate pool and pick top match
-    const scoredCandidates = candidateProfiles.map((p) => ({
-      profile: p,
-      score: calculateCompatibility(currentProfile, p),
-    }));
-
-    scoredCandidates.sort((a, b) => b.score - a.score);
-
-    const mysteryCandidate = scoredCandidates[0];
+    const validLikes = populatedLikes.filter((l) => l !== null);
 
     res.status(200).json({
       success: true,
-      message: 'Daily mystery match retrieved',
+      message: 'Sent likes fetched',
+      data: validLikes,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get likes received by authenticated user (Inbound Requests)
+ * @route   GET /api/matches/received-likes
+ * @access  Private
+ */
+const getReceivedLikes = async (req, res, next) => {
+  try {
+    const currentUserId = req.user._id;
+
+    const likesReceived = await Like.find({ toUserId: currentUserId }).sort({ createdAt: -1 });
+
+    const populatedRequests = await Promise.all(
+      likesReceived.map(async (like) => {
+        const senderProfile = await Profile.findOne({ userId: like.fromUserId }).select('-__v');
+        if (!senderProfile) return null;
+
+        // Check if current user already liked them back (already matched)
+        const isMatched = await Match.findExistingMatch(currentUserId, like.fromUserId);
+
+        return {
+          likeId: like._id,
+          likedAt: like.createdAt,
+          isSecretCrush: like.isSecretCrush,
+          isMatched: Boolean(isMatched),
+          senderProfile,
+        };
+      })
+    );
+
+    // Only show pending requests (where mutual match doesn't exist yet)
+    const pendingRequests = populatedRequests.filter((r) => r !== null && !r.isMatched);
+
+    res.status(200).json({
+      success: true,
+      message: 'Received likes fetched',
+      data: pendingRequests,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Accept an incoming like request (relike student & form match)
+ * @route   POST /api/matches/accept
+ * @access  Private
+ */
+const acceptLike = async (req, res, next) => {
+  try {
+    const currentUserId = req.user._id;
+    const { targetUserId } = req.body;
+
+    if (!targetUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Target user ID is required',
+        errorCode: 'MISSING_TARGET_USER',
+      });
+    }
+
+    // Create or update reciprocal Like document
+    let likeDoc = await Like.findOne({
+      fromUserId: currentUserId,
+      toUserId: targetUserId,
+    });
+
+    if (!likeDoc) {
+      likeDoc = await Like.create({
+        fromUserId: currentUserId,
+        toUserId: targetUserId,
+      });
+    }
+
+    // Create Match document if not exists
+    let matchDoc = await Match.findExistingMatch(currentUserId, targetUserId);
+    if (!matchDoc) {
+      matchDoc = await Match.create({
+        user1Id: currentUserId,
+        user2Id: targetUserId,
+        isSecretCrushMatch: false,
+      });
+    }
+
+    // Auto-create Conversation document so chat opens immediately
+    const Conversation = require('../models/Conversation');
+    await Conversation.findOrCreateConversation(currentUserId, targetUserId);
+
+    // Send Match Notifications to both users
+    const { createNotification } = require('./notificationController');
+    const currentProfile = await Profile.findOne({ userId: currentUserId });
+    const targetProfile = await Profile.findOne({ userId: targetUserId });
+
+    await createNotification({
+      userId: currentUserId,
+      type: 'MATCH',
+      title: "It's a Match! 🎉",
+      message: `You accepted ${targetProfile?.anonymousName || 'a student'}'s request!`,
+      link: '/matches',
+    });
+
+    await createNotification({
+      userId: targetUserId,
+      type: 'MATCH',
+      title: "It's a Match! 🎉",
+      message: `${currentProfile?.anonymousName || 'A student'} accepted your like request!`,
+      link: '/matches',
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "It's a Match!",
       data: {
-        ...mysteryCandidate.profile.toObject(),
-        compatibilityScore: mysteryCandidate.score,
-        isMysteryMatch: true,
+        match: matchDoc,
+        targetProfile,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Decline an incoming like request
+ * @route   POST /api/matches/decline
+ * @access  Private
+ */
+const declineLike = async (req, res, next) => {
+  try {
+    const currentUserId = req.user._id;
+    const { targetUserId } = req.body;
+
+    if (!targetUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Target user ID is required',
+        errorCode: 'MISSING_TARGET_USER',
+      });
+    }
+
+    // Remove Like document from target user to current user
+    await Like.deleteMany({
+      fromUserId: targetUserId,
+      toUserId: currentUserId,
+    });
+
+    // Record Pass
+    const existingPass = await Pass.findOne({
+      fromUserId: currentUserId,
+      toUserId: targetUserId,
+    });
+
+    if (!existingPass) {
+      await Pass.create({
+        fromUserId: currentUserId,
+        toUserId: targetUserId,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Like request declined',
     });
   } catch (error) {
     next(error);
@@ -309,7 +458,10 @@ const getIcebreakers = async (req, res, next) => {
 
 module.exports = {
   getMyMatches,
+  getSentLikes,
+  getReceivedLikes,
+  acceptLike,
+  declineLike,
   sendSecretCrush,
-  getMysteryMatch,
   getIcebreakers,
 };

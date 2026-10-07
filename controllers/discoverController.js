@@ -38,7 +38,11 @@ const getDiscoveryFeed = async (req, res, next) => {
       profileVisibility: true,
     };
 
-    const { department, year, interest, lookingFor, page = 1, limit = 10 } = req.query;
+    const { search, department, year, interest, lookingFor, page = 1, limit = 10 } = req.query;
+
+    if (search && search.trim()) {
+      query.anonymousName = { $regex: search.trim(), $options: 'i' };
+    }
 
     if (department) {
       query.department = department;
